@@ -1,8 +1,8 @@
 """init schema
 
-Revision ID: c3977171e717
-Revises: a4b6a653b3ad
-Create Date: 2025-10-18 18:26:12.858734
+Revision ID: 38be0198715a
+Revises: b028a0e3366a
+Create Date: 2025-10-18 19:20:22.821149
 
 """
 from typing import Sequence, Union
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = 'c3977171e717'
-down_revision: Union[str, Sequence[str], None] = 'a4b6a653b3ad'
+revision: str = '38be0198715a'
+down_revision: Union[str, Sequence[str], None] = 'b028a0e3366a'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -127,7 +127,6 @@ def upgrade() -> None:
     op.create_index('ix_transactions_from_account_id', 'transactions', ['from_account_id'], unique=False, schema='public')
     op.create_index('ix_transactions_user_datetime', 'transactions', ['user_id', 'datetime'], unique=False, schema='public')
     op.create_index('ix_transactions_user_id', 'transactions', ['user_id'], unique=False, schema='public')
-    op.drop_table('alembic_version')
     # ### end Alembic commands ###
 
 
