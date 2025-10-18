@@ -25,16 +25,6 @@ class Conversation:
         """Add a developer message to the conversation history."""
         self.history.append({"role": "developer", "content": content})
 
-    def add_function_call_output(self, call_id: str, output: str):
-        """Add a function call output to the conversation history."""
-        self.history.append(
-            {
-                "type": "function_call_output",
-                "call_id": call_id,
-                "output": output,
-            }
-        )
-
     def get_history_copy(self) -> list[dict]:
         """Return a deep copy of the conversation history."""
         return copy.deepcopy(self.history)

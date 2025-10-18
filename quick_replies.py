@@ -7,6 +7,7 @@ import openai
 from llm_tools import tools
 from telegram import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 
+
 def create_quick_replies(options: list[str]) -> ReplyKeyboardMarkup:
     """Create reply keyboard markup from quick reply options."""
     if not options:
@@ -28,6 +29,7 @@ def create_quick_replies(options: list[str]) -> ReplyKeyboardMarkup:
         else ReplyKeyboardRemove()
     )
 
+
 async def generate_quick_replies(conversation: Conversation) -> list[str]:
     messages = conversation.get_recent_history()
 
@@ -48,17 +50,39 @@ async def generate_quick_replies(conversation: Conversation) -> list[str]:
 
     response = await client.responses.create(
         model="gpt-5-mini",
-        tools=tools,
+        tools=[
+            {
+                "type": "function",
+                "strict": True,
+                "name": "provide_replies",
+                "description": "Provide replies here.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "replies": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                            },
+                            "description": "List of reply messages",
+                        },
+                    },
+                    "required": ["replies"],
+                    "additionalProperties": False,
+                },
+            }
+        ],
         instructions="Your next reply is not visible to the user. Suggest 0-8 things for the user to reply with. Only add relevant contextual buttons. These will be used as button labels. 1-5 words per option. Only letters. No punctuation or numeration. End your response with a JSON array of strings.",
         input=messages,
     )
 
-    replies = json.loads(response.output_text.split("\n")[-1])
-    replies = [
-        x.capitalize().replace(".", "").replace("- ", "")
-        for x in replies
-    ]
+    replies = []
+    for item in response.output:
+        if item.type == "function_call":
+            if item.name == "provide_replies":
+                replies = json.loads(item.arguments)
 
+    replies = [x.capitalize().replace(".", "").replace("- ", "") for x in replies]
     related_replies = await asyncio.gather(*(async_check_faq_has(x) for x in replies))
 
     return [x for i, x in enumerate(replies) if related_replies[i]]
