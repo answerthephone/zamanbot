@@ -23,5 +23,18 @@ tools = [
             "required": ["financial_goal", "current_balance", "monthly_savings"],
             "additionalProperties": False,
         },
+    },
+    {
+        "type": "function",
+        "strict": True,
+        "name": "get_personal_finance_analytics",
+        "description": "Get personal finance analytics.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+            },
+            "required": [],
+            "additionalProperties": False,
+        },
     }
 ]

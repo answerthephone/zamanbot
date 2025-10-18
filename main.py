@@ -1,5 +1,6 @@
 import telegramify_markdown
 import openai
+import random
 import json
 from faq_rag.faq_rag import ask_faq
 from saving_strategies import generate_saving_strategies
@@ -19,6 +20,7 @@ import asyncio
 from conversation import Conversation
 from llm_tools import tools
 from quick_replies import create_quick_replies, generate_quick_replies
+from analytics import get_user_financial_summary
 
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -27,6 +29,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN is missing in .env")
 
+bank_user_id = random.randint(1, 200)
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 conversations: dict[int, Conversation] = {}
@@ -146,6 +149,15 @@ async def generate_reply_text(conversation: Conversation) -> str:
                     }
                 )
                 logging.info("Re-generating response after function call output")
+            elif item.name == "get_personal_finance_analytics":
+                analytics = get_user_financial_summary(bank_user_id)
+                conversation.history.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": item.call_id,
+                        "output": json.dumps({"analytics": analytics}),
+                    }
+                )
 
     if has_function_call:
         response = await client.responses.create(
