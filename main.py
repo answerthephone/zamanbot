@@ -1,19 +1,16 @@
 import asyncio
-from aiogram import Router
-from aiogram.types import Message
-from aiogram.filters import Command
-from faq_rag.faq_rag import ask_faq
 
 import logging
 from aiogram import Bot, Dispatcher
 from dotenv import load_dotenv
 import os
 
-# Import routers from handlers
-from bot.handlers.start import start_router
+import router
+import openai
 
 # Load environment variables
 load_dotenv()
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # Initialize bot and dispatcher
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -24,15 +21,7 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 # Register routers
-dp.include_router(start_router)
-
-faq_router = Router()
-
-@faq_router.message(Command("faq"))
-async def faq_handler(message: Message):
-    await message.answer(str(ask_faq(message.text)))
-
-dp.include_router(faq_router)
+dp.include_router(router.router)
 
 # Entry point
 async def main():
