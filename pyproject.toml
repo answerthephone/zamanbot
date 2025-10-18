@@ -5,7 +5,6 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "aiogram>=3.22.0",
     "alembic>=1.17.0",
     "asyncpg>=0.30.0",
     "loguru>=0.7.3",
@@ -19,6 +18,7 @@ dependencies = [
     "python-dotenv>=1.1.1",
     "openai>=1.109.1",
     "telegramify-markdown[mermaid]>=0.5.2",
+    "python-telegram-bot>=22.5",
 ]
 [tool.mypy]
 ignore_missing_imports = true
