@@ -1,0 +1,71 @@
+[
+  {
+    "product_name": "Бизнес карта",
+    "product_type": "Исламский кредитный лимит на счет (овердрафт)",
+    "markup_tenge": "от 3 000",
+    "max_amount_tenge": 10000000,
+    "min_amount_tenge": 100000,
+    "min_term": null,
+    "max_term_days": 30,
+    "min_client_age": 21,
+    "max_client_age": 63
+  },
+  {
+    "product_name": "Исламское финансирование",
+    "product_type": "Исламский беззалоговый кредит",
+    "markup_tenge": "от 12 000",
+    "max_amount_tenge": 10000000,
+    "min_amount_tenge": 100000,
+    "min_term_months": 3,
+    "max_term_months": 60,
+    "min_client_age": 21,
+    "max_client_age": 63
+  },
+  {
+    "product_name": "Исламское финансирование (залоговый)",
+    "product_type": "Исламский залоговый кредит",
+    "markup_tenge": "от 12 000",
+    "max_amount_tenge": 10000000,
+    "min_amount_tenge": 100000,
+    "min_term_months": 3,
+    "max_term_months": 60,
+    "min_client_age": 21,
+    "max_client_age": 63
+  },
+  {
+    "product_name": "Овернайт",
+    "product_type": "Депозитный",
+    "expected_yield_percent": 12,
+    "max_amount_tenge": 100000000,
+    "min_amount_tenge": 1000000,
+    "min_term_months": 1,
+    "max_term_months": 12
+  },
+  {
+    "product_name": "Выгодный",
+    "product_type": "Депозитный",
+    "expected_yield_percent": 17,
+    "max_amount_tenge": 100000000,
+    "min_amount_tenge": 500000,
+    "min_term_months": 3,
+    "max_term_months": 12
+  },
+  {
+    "product_name": "Бизнес-карта",
+    "product_type": "Платежный",
+    "operation_limit_per_day_tenge": 10000000,
+    "issue_and_service_fee_tenge": 0,
+    "cash_withdrawal": "до 1 000 000 тенге — бесплатно, свыше — 1% от суммы",
+    "cashback_percent": "до 1%",
+    "cashback_categories": "покупки в категориях бизнес-расходов"
+  },
+  {
+    "product_name": "Тарифные пакеты",
+    "product_type": "Расчётно-кассовое обслуживание",
+    "payments_in_package_per_month": "10–200",
+    "subscription_fee_tenge_per_month": "от 0 до 15 000",
+    "account_opening": "Бесплатно",
+    "bonuses": "Скидки на валютные операции и бизнес-карту",
+    "additional_options": "Проверка контрагентов, налоговая отчетность, сервисы по развитию бизнеса"
+  }
+]
