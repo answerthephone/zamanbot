@@ -1,4 +1,5 @@
 import sys
+from functools import lru_cache
 from dotenv import load_dotenv
 from llama_index.core import StorageContext, load_index_from_storage
 from llama_index.llms.openai import OpenAI
@@ -13,8 +14,13 @@ index = load_index_from_storage(storage_context, embed_model=embed_model)
 llm = OpenAI(model="gpt-4o-mini")
 query_engine = index.as_query_engine(llm=llm)
 
-def ask_faq(query):
+
+def ask_faq_unoptimized(query):
     return query_engine.query(query)
+
+@lru_cache(maxsize=1024)
+def ask_faq(query: str):
+    return str(ask_faq_unoptimized(query))
 
 if __name__ == "__main__":
     # Optional CLI query
