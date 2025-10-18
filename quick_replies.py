@@ -1,6 +1,7 @@
+import json
 import asyncio
 import logging
-from faq_rag.faq_rag import ask_faq
+from faq_rag.faq_rag import ask_faq, async_check_faq_has
 from conversation import Conversation
 import openai
 from llm_tools import tools
@@ -48,14 +49,16 @@ async def generate_quick_replies(conversation: Conversation) -> list[str]:
     response = await client.responses.create(
         model="gpt-5-mini",
         tools=tools,
-        instructions="Your next reply is not visible to the user. Generate contextual text actions to respond with. Each on new line. 1-5 words per option. Only letters. No punctuation or numeration. These will be used as button labels. Only add relevant contextual actions.",
+        instructions="Your next reply is not visible to the user. Suggest 0-8 things for the user to reply with. Only add relevant contextual buttons. These will be used as button labels. 1-5 words per option. Only letters. No punctuation or numeration. End your response with a JSON array of strings.",
         input=messages,
     )
 
-    options = [
-        x.capitalize()
-        for x in response.output_text.replace(".", "").replace("- ", "").split("\n")
-        if x.strip()
+    replies = json.loads(response.output_text.split("\n")[-1])
+    replies = [
+        x.capitalize().replace(".", "").replace("- ", "")
+        for x in replies
     ]
 
-    return options
+    related_replies = await asyncio.gather(*(async_check_faq_has(x) for x in replies))
+
+    return [x for i, x in enumerate(replies) if related_replies[i]]

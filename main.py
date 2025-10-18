@@ -38,6 +38,23 @@ def get_or_create_conversation(user_id: int) -> Conversation:
     return conversations[user_id]
 
 
+async def send_typing_action_periodically(chat_id: int, stop_event: asyncio.Event):
+    """Send typing action every 3 seconds until stop_event is set."""
+    while not stop_event.is_set():
+        try:
+            await app.bot.send_chat_action(
+                chat_id=chat_id, action=telegram.constants.ChatAction.TYPING
+            )
+        except Exception as e:
+            logging.error(f"Error sending typing action: {e}")
+        
+        # Wait 3 seconds or until stop_event is set
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=3.0)
+        except asyncio.TimeoutError:
+            continue
+
+
 async def generate_reply(user_id: int, text: str) -> tuple[str, list[str]]:
     conversation = get_or_create_conversation(user_id)
 
@@ -54,6 +71,7 @@ async def generate_reply(user_id: int, text: str) -> tuple[str, list[str]]:
 
 async def generate_reply_text(conversation: Conversation) -> str:
     instructions = None
+    is_conversation_start = conversation.should_greet()
 
     if conversation.should_greet():
         instructions = 'Start your response with a greeting like "Здравствуйте!"'
@@ -64,7 +82,11 @@ async def generate_reply_text(conversation: Conversation) -> str:
     try:
         # Run FAQ retrieval in executor to avoid blocking
         loop = asyncio.get_event_loop()
-        faq_reply = await loop.run_in_executor(None, ask_faq, messages[-1]["content"])
+        last_message = messages[-1]["content"]
+        faq_query = last_message
+        if is_conversation_start:
+            faq_query = "Перечисли услуги банка и основные вопросы"
+        faq_reply = await loop.run_in_executor(None, ask_faq, faq_query)
         faq_reply = str(faq_reply)
     except Exception as e:
         logging.error(f"FAQ retrieval error: {e}")
@@ -76,7 +98,7 @@ async def generate_reply_text(conversation: Conversation) -> str:
     client = openai.AsyncOpenAI(api_key=openai.api_key)
 
     response = await client.responses.create(
-        model="gpt-5-mini",
+        model="gpt-4o-mini",
         tools=tools,
         instructions=instructions,
         input=messages,
@@ -110,31 +132,44 @@ async def generate_reply_text(conversation: Conversation) -> str:
 
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await app.bot.send_chat_action(
-        chat_id=update.effective_chat.id, action=telegram.constants.ChatAction.TYPING
+    stop_event = asyncio.Event()
+    typing_task = asyncio.create_task(
+        send_typing_action_periodically(update.effective_chat.id, stop_event)
     )
-    reply, quick_options = await generate_reply(
-        update.effective_user.id, "Здравствуйте! Я клиент банка."
-    )
-    await update.message.reply_text(
-        reply,
-        reply_markup=create_quick_replies(quick_options),
-        parse_mode="MarkdownV2",
-    )
+    
+    try:
+        reply, quick_options = await generate_reply(
+            update.effective_user.id, "Здравствуйте! Я клиент банка."
+        )
+        await update.message.reply_text(
+            reply,
+            reply_markup=create_quick_replies(quick_options),
+            parse_mode="MarkdownV2",
+        )
+    finally:
+        stop_event.set()
+        await typing_task
 
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await app.bot.send_chat_action(
-        chat_id=update.effective_chat.id, action=telegram.constants.ChatAction.TYPING
+    stop_event = asyncio.Event()
+    typing_task = asyncio.create_task(
+        send_typing_action_periodically(update.effective_chat.id, stop_event)
     )
-    reply, quick_options = await generate_reply(
-        update.effective_user.id, update.message.text
-    )
-    await update.message.reply_text(
-        reply,
-        reply_markup=create_quick_replies(quick_options),
-        parse_mode="MarkdownV2",
-    )
+    
+    try:
+        reply, quick_options = await generate_reply(
+            update.effective_user.id, update.message.text
+        )
+        await update.message.reply_text(
+            reply,
+            reply_markup=create_quick_replies(quick_options),
+            parse_mode="MarkdownV2",
+        )
+    finally:
+        stop_event.set()
+        await typing_task
+
 
 def main():
     logging.basicConfig(level=logging.INFO)
