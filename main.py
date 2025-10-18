@@ -1,4 +1,9 @@
 import asyncio
+from aiogram import Router
+from aiogram.types import Message
+from aiogram.filters import Command
+from faq_rag.faq_rag import ask_faq
+
 import logging
 from aiogram import Bot, Dispatcher
 from dotenv import load_dotenv
@@ -20,6 +25,14 @@ dp = Dispatcher()
 
 # Register routers
 dp.include_router(start_router)
+
+faq_router = Router()
+
+@faq_router.message(Command("faq"))
+async def faq_handler(message: Message):
+    await message.answer(str(ask_faq(message.text)))
+
+dp.include_router(faq_router)
 
 # Entry point
 async def main():
