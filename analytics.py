@@ -1,7 +1,9 @@
-# analytics.py
 import requests
 import pandas as pd
-import json
+import matplotlib.pyplot as plt
+import seaborn as sns
+import io
+from db import engine
 
 pd.options.display.float_format = '{:,.2f}'.format
 
@@ -18,11 +20,20 @@ def convert_to_kzt(amount, currency, rates_from_eur):
         return amount_in_eur * eur_to_kzt
     raise ValueError(f"Неизвестная валюта: {currency}")
 
-def user_financial_summary(csv_path, user_id):
-    df = pd.read_csv(csv_path)
+def plot_to_bytesio(fig) -> io.BytesIO:
+    """Saves Matplotlib figure to BytesIO (PNG)"""
+    buffer = io.BytesIO()
+    fig.savefig(buffer, format="png", bbox_inches="tight", dpi=150)
+    buffer.seek(0)
+    plt.close(fig)
+    return buffer
+
+def get_user_financial_summary(user_id: int):
     url = "https://latest.currency-api.pages.dev/v1/currencies/eur.json"
     response = requests.get(url)
     rates_from_eur = response.json()["eur"]
+
+    df = pd.read_sql("SELECT * FROM transactions", engine)
 
     df["amount_kzt"] = df.apply(
         lambda row: convert_to_kzt(row["amount"], row["currency"], rates_from_eur),
@@ -77,18 +88,50 @@ def user_financial_summary(csv_path, user_id):
     else:
         recommendations.append("Отличная финансовая стабильность — нет трат.")
 
+    # ---------- GRAPHS ----------
+    sns.set(style="whitegrid")
+    graphs = {}
+
+    # Pie chart; expense by category
+    if not user_expenses_by_category.empty:
+        fig, ax = plt.subplots(figsize=(6, 6))
+        ax.pie(
+            user_expenses_by_category,
+            labels=user_expenses_by_category.index,
+            autopct="%1.1f%%",
+            startangle=140
+        )
+        ax.set_title("Структура расходов по категориям")
+        graphs["pie_chart"] = plot_to_bytesio(fig)
+
+    # Line chart; day spendings
+    if "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        daily_expenses = (
+            df[df["from_account_id"] == user_id]
+            .groupby(df["date"].dt.date)["amount_kzt"]
+            .sum()
+            .reset_index()
+        )
+
+        if not daily_expenses.empty:
+            fig, ax = plt.subplots(figsize=(7, 4))
+            sns.lineplot(data=daily_expenses, x="date", y="amount_kzt", marker="o", ax=ax)
+            ax.set_title("Траты по дням (₸)")
+            ax.set_xlabel("Дата")
+            ax.set_ylabel("Сумма (₸)")
+            plt.xticks(rotation=45)
+            graphs["line_chart"] = plot_to_bytesio(fig)
+    # -----------------------------
+
     result = {
         "user_id": int(user_id),
         "income": round(user_income, 2),
         "expense": round(user_expense, 2),
         "net_balance": round(user_balance, 2),
         "top_expense_categories": top_categories,
-        "recommendations": recommendations
+        "recommendations": recommendations,
+        "graphs": graphs
     }
 
     return result
-
-
-# Обертка для вызова через LLM
-def get_user_financial_summary(user_id: int, csv_path: str = "data/transactions.csv"):
-    return user_financial_summary(csv_path, user_id)

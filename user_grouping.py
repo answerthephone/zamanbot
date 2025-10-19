@@ -1,11 +1,8 @@
 from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import NearestNeighbors
 from sqlalchemy import create_engine
+from db import engine
 import pandas as pd
-import config
-
-settings = config.get_settings()
-engine = create_engine(settings.DATABASE_URL)
 
 N_NEIGHBORS = 10  # Seems enough, but feel free to adjust
 
