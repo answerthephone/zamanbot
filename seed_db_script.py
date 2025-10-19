@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import asyncio, os, random, uuid, argparse
+import asyncio, os, random, argparse
 from datetime import date, datetime, timezone, timedelta
 from decimal import Decimal
 from dateutil.relativedelta import relativedelta
 
 import sqlalchemy as sa
 from sqlalchemy import text
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from faker import Faker
 
 from db import engine
@@ -42,6 +41,7 @@ GOAL_ACTIONS = ["Buy","Save for","Plan for","Fund","Prepare for","Set aside for"
 GOAL_TARGETS = ["car","apartment","laptop","vacation","wedding","education","retirement",
                 "emergency","new phone","business","furniture","bicycle","camera","home repair",
                 "medical expenses","birthday gift","study abroad","gaming PC","future child","pet"]
+
 LOAN_PURPOSES = [
   "Buy an apartment","Home renovation","Build a house","Mortgage refinancing","Buy a car","Repair a car",
   "Motorcycle purchase","Pay for education","Study abroad","Professional courses","Travel expenses",
@@ -89,9 +89,6 @@ RECEIVER_CATALOG = {
 def d2(x) -> Decimal:
     return Decimal(f"{float(x):.2f}")
 
-def tznow() -> datetime:
-    return datetime.now(timezone.utc)
-
 def random_birthdate(min_age=18, max_age=90) -> date:
     today = date.today()
     return fake.date_between(date(today.year-max_age,1,1), date(today.year-min_age,12,31))
@@ -131,20 +128,15 @@ def chunked(seq, n):
     for i in range(0, len(seq), n):
         yield seq[i:i+n]
 
-
-# ---------------- Generators ----------------
+# ---------------- Generators (no 'id' fields!) ----------------
 def gen_users(n):
-    rows = []
-    for i in range(n):
-        rows.append({
-            "id": i + 1,  # INT PRIMARY KEY
-            "name": fake.name(),
-            "email": fake.unique.email(),
-            "sex": random.choice(SEXES),
-            "birth_date": random_birthdate(),
-            "city": random.choices(CITIES, weights=CITY_WEIGHTS)[0],
-        })
-    return rows
+    return [{
+        "name": fake.name(),
+        "email": fake.unique.email(),
+        "sex": random.choice(SEXES),
+        "birth_date": random_birthdate(),
+        "city": random.choices(CITIES, weights=CITY_WEIGHTS)[0],
+    } for _ in range(n)]
 
 def gen_accounts(n, user_ids):
     rows = []
@@ -168,8 +160,7 @@ def gen_accounts(n, user_ids):
             ends = opened + relativedelta(months=months)
 
         rows.append({
-            "id": uuid.uuid4(),
-            "user_id": random.choice(user_ids),  # INTEGER FK
+            "user_id": random.choice(user_ids),
             "type": acc_type,
             "balance": balance,
             "currency": currency,
@@ -188,7 +179,6 @@ def gen_goals(n, user_ids, account_ids):
         target = goal_target(currency)
         current = d2(random.uniform(0, float(target) * 0.97))
         rows.append({
-            "id": uuid.uuid4(),
             "user_id": random.choice(user_ids),
             "account_id": random.choice(account_ids),
             "name": f"{random.choice(GOAL_ACTIONS)} {random.choice(GOAL_TARGETS)}",
@@ -206,7 +196,6 @@ def gen_loans(n, user_ids, account_ids):
         n_months = random.randint(3, 60)
         issued_date = fake.date_between(start_date="-3y", end_date="-1m")
         rows.append({
-            "id": uuid.uuid4(),
             "user_id": random.choice(user_ids),
             "account_id": random.choice(account_ids),
             "loan_type": random.choice(LOAN_TYPES),
@@ -227,7 +216,6 @@ def gen_transactions(n, user_ids, account_ids):
         cat = random.choice(TX_CATEGORIES)
         receiver, desc = tx_details(cat)
         rows.append({
-            "id": uuid.uuid4(),
             "user_id": random.choice(user_ids),
             "from_account_id": random.choice(account_ids),
             "datetime": fake.date_time_between(start_date="-6m", end_date="now", tzinfo=timezone.utc),
@@ -238,7 +226,6 @@ def gen_transactions(n, user_ids, account_ids):
             "description": desc,
         })
     return rows
-
 
 # ---------------- Async helpers ----------------
 async def table_count(conn: sa.ext.asyncio.AsyncConnection, table: sa.Table) -> int:
@@ -252,11 +239,21 @@ async def bulk_insert(conn, table, rows, label, batch=BATCH_SIZE):
         await conn.execute(sa.insert(table), chunk)
     print(f"Inserted {len(rows):>6} into {label}")
 
-async def truncate_all(conn):
-    for name in ["transactions","loans","financial_goals","accounts","users"]:
-        await conn.execute(text(f'TRUNCATE TABLE "public"."{name}" CASCADE;'))
-    print("Truncated tables.")
+async def insert_and_return_ids(conn, table, rows, label, batch=BATCH_SIZE):
+    """Insert rows and return generated integer primary keys in order of insertion."""
+    ids: list[int] = []
+    if not rows:
+        return ids
+    for chunk in chunked(rows, batch):
+        result = await conn.execute(sa.insert(table).returning(table.c.id), chunk)
+        ids.extend(list(result.scalars().all()))
+    print(f"Inserted {len(ids):>6} into {label}")
+    return ids
 
+async def truncate_all(conn):
+    # restart sequences to 1 as well
+    await conn.execute(text('TRUNCATE TABLE "public"."transactions","public"."loans","public"."financial_goals","public"."accounts","public"."users" RESTART IDENTITY CASCADE;'))
+    print("Truncated tables (restart identity).")
 
 # ---------------- Main ----------------
 async def main():
@@ -272,22 +269,24 @@ async def main():
                 print("Data already present. Use --force to reseed.")
                 return
 
+        # 1) users
         users_rows = gen_users(N_USERS)
-        user_ids   = [r["id"] for r in users_rows]
+        user_ids   = await insert_and_return_ids(conn, t_users, users_rows, "public.users")
+
+        # 2) accounts
         accounts_rows = gen_accounts(N_ACCOUNTS, user_ids)
-        account_ids   = [r["id"] for r in accounts_rows]
+        account_ids   = await insert_and_return_ids(conn, t_accounts, accounts_rows, "public.accounts")
+
+        # 3) dependent tables use the real IDs generated above
         goals_rows = gen_goals(N_GOALS, user_ids, account_ids)
         loans_rows = gen_loans(N_LOANS, user_ids, account_ids)
         tx_rows    = gen_transactions(N_TRANSACTIONS, user_ids, account_ids)
 
-        await bulk_insert(conn, t_users, users_rows, "public.users")
-        await bulk_insert(conn, t_accounts, accounts_rows, "public.accounts")
         await bulk_insert(conn, t_financial_goals, goals_rows, "public.financial_goals")
-        await bulk_insert(conn, t_loans, loans_rows, "public.loans")
-        await bulk_insert(conn, t_transactions, tx_rows, "public.transactions")
+        await bulk_insert(conn, t_loans,           loans_rows, "public.loans")
+        await bulk_insert(conn, t_transactions,    tx_rows,    "public.transactions")
 
         print("Seeding complete.")
 
 if __name__ == "__main__":
     asyncio.run(main())
-

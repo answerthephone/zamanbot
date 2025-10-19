@@ -178,12 +178,16 @@ async def generate_reply_text(conversation: Conversation) -> str:
                     }
                 )
                 logging.info("Re-generating response after function call output")
-            elif item.name == "get_user_financial_summary":
+            elif item.name == "get_personal_finance_analytics":
                 args = json.loads(item.arguments)
-                analytics = await get_user_financial_summary(bank_user_id, args["last_n_days"])
+                analytics = await get_user_financial_summary(bank_user_id)
                 print(analytics)
                 print(analytics["graphs"])
-                images = [analytics["graphs"]["pie_chart"], analytics["graphs"]["line_chart"]]
+                images = []
+                if "pie_chart" in analytics["graphs"]:
+                    images.append(analytics["graphs"]["pie_chart"])
+                if "line_chart" in analytics["graphs"]:
+                    images.append(analytics["graphs"]["line_chart"])
                 analytics["graphs"] = None
                 messages.append(
                     {
