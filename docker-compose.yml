@@ -1,0 +1,86 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16
+    container_name: zamanbot_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 12345678
+      POSTGRES_DB: clients_db
+
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-clients_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - appnet
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zamanbot_migrate
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://$DB_USER:$DB_PASSWORD@db:5432/$DB_NAME
+    command: ["uv", "run", "alembic", "upgrade", "head"]
+    networks:
+      - appnet
+
+  seed:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zamanbot_seed
+    restart: "no"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://$DB_USER:$DB_PASSWORD@db:5432/$DB_NAME
+      FAKER_LOCALE: en_US
+      SEED_N_USERS: "100"
+      SEED_N_ACCOUNTS: "200"
+      SEED_N_TRANSACTIONS: "3000"
+      SEED_N_GOALS: "150"
+      SEED_N_LOANS: "50"
+      SEED_N_TG_USERS: "80"
+    command: ["python", "seed_db_script.py"] 
+    networks:
+      - appnet
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zamanbot_bot
+    restart: unless-stopped
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://$DB_USER:$DB_PASSWORD@db:5432/$DB_NAME
+    command: ["python", "main.py"]
+    networks:
+      - appnet
+
+volumes:
+  pg_data:
+
+networks:
+  appnet:
+    driver: bridge

@@ -1,0 +1,13 @@
+__pycache__/
+.mypy_cache/
+.venv/
+.env
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+.git
+.gitignore
+data/
+media/
+alembic/versions/__pycache__/
