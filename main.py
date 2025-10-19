@@ -337,14 +337,21 @@ async def voice_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         logging.info("Voice transcript:", transcript.text)
 
-        reply, quick_options = await generate_reply(
+        reply, images, quick_options = await generate_reply(
             update.effective_user.id, transcript.text
         )
-        await update.message.reply_text(
-            reply,
-            reply_markup=create_quick_replies(quick_options),
-            parse_mode="MarkdownV2",
-        )
+        if images:
+            await update.message.reply_media_group(
+                [InputMediaPhoto(media=x) for x in images],
+                caption=reply,
+                parse_mode="MarkdownV2",
+            )
+        else:
+            await update.message.reply_text(
+                reply,
+                reply_markup=create_quick_replies(quick_options),
+                parse_mode="MarkdownV2",
+            )
     except Exception as e:
         raise e
     finally:
