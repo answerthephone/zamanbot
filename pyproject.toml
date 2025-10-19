@@ -19,6 +19,8 @@ dependencies = [
     "openai>=1.109.1",
     "telegramify-markdown[mermaid]>=0.5.2",
     "python-telegram-bot>=22.5",
+    "faker>=37.11.0",
+    "types-python-dateutil>=2.9.0.20251008",
 ]
 [tool.mypy]
 ignore_missing_imports = true
