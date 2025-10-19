@@ -29,7 +29,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN is missing in .env")
 
-bank_user_id = random.randint(1, 200)
+bank_user_id = random.randint(1, 10)
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 conversations: dict[int, Conversation] = {}
@@ -90,7 +90,14 @@ async def generate_reply_text(conversation: Conversation) -> str:
 
     try:
         loop = asyncio.get_event_loop()
-        last_message = messages[-1]["content"] if messages else ""
+        last_message = next(
+            (
+                msg["content"]
+                for msg in reversed(messages)
+                if isinstance(msg, dict) and "content" in msg
+            ),
+            "",
+        )
         logging.info(f"Last message for FAQ: {last_message}")
 
         faq_query = last_message
@@ -161,9 +168,9 @@ async def generate_reply_text(conversation: Conversation) -> str:
 
     if has_function_call:
         response = await client.responses.create(
-            model="gpt-4o-mini",
+            model="gpt-5-mini",
             tools=tools,
-            instructions="Present the result of the function call in the context of the conversation.",
+            instructions="Present the result of the function call in the context of the conversation. Derive insights from the data and make calls to action for the user.",
             input=conversation.history,
         )
         logging.info(f"Final response after function call: {response}")

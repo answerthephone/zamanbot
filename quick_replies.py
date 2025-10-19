@@ -36,7 +36,13 @@ async def generate_quick_replies(conversation: Conversation) -> list[str]:
     try:
         # Run FAQ retrieval in executor to avoid blocking
         loop = asyncio.get_event_loop()
-        faq_input = (messages[-1]["content"]) + "\n" + (messages[-2]["content"])
+
+        content_messages = [msg["content"] for msg in messages if "content" in msg]
+
+        last_message = content_messages[-1] if len(content_messages) >= 1 else ""
+        second_last_message = content_messages[-2] if len(content_messages) >= 2 else ""
+
+        faq_input = last_message + "\n" + second_last_message
         faq_reply = await loop.run_in_executor(None, ask_faq, faq_input)
         faq_reply = str(faq_reply)
     except Exception as e:
@@ -80,7 +86,7 @@ async def generate_quick_replies(conversation: Conversation) -> list[str]:
     for item in response.output:
         if item.type == "function_call":
             if item.name == "provide_replies":
-                replies = json.loads(item.arguments)
+                replies = json.loads(item.arguments)["replies"]
 
     replies = [x.capitalize().replace(".", "").replace("- ", "") for x in replies]
     related_replies = await asyncio.gather(*(async_check_faq_has(x) for x in replies))
