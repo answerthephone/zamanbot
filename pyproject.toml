@@ -19,6 +19,7 @@ dependencies = [
     "openai>=1.109.1",
     "telegramify-markdown[mermaid]>=0.5.2",
     "python-telegram-bot>=22.5",
+    "pydub>=0.25.1",
 ]
 [tool.mypy]
 ignore_missing_imports = true

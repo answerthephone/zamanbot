@@ -37,7 +37,7 @@ async def generate_quick_replies(conversation: Conversation) -> list[str]:
         # Run FAQ retrieval in executor to avoid blocking
         loop = asyncio.get_event_loop()
 
-        content_messages = [msg["content"] for msg in messages if "content" in msg]
+        content_messages = [msg["content"] for msg in messages if "content" in msg and msg["content"] is not None]
 
         last_message = content_messages[-1] if len(content_messages) >= 1 else ""
         second_last_message = content_messages[-2] if len(content_messages) >= 2 else ""
@@ -47,9 +47,11 @@ async def generate_quick_replies(conversation: Conversation) -> list[str]:
         faq_reply = str(faq_reply)
     except Exception as e:
         logging.error(f"FAQ retrieval error: {e}")
+        raise e
         faq_reply = "No FAQ information available."
 
     messages.append({"role": "developer", "content": "FAQ RAG: " + faq_reply})
+    messages = [x for x in messages if "content" in x and x["content"] is not None]
 
     # Create async OpenAI client
     client = openai.AsyncOpenAI(api_key=openai.api_key)

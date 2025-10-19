@@ -21,6 +21,7 @@ from conversation import Conversation
 from llm_tools import tools
 from quick_replies import create_quick_replies, generate_quick_replies
 from analytics import get_user_financial_summary
+from pydub import AudioSegment
 
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -81,21 +82,20 @@ async def generate_reply_text(conversation: Conversation) -> str:
     logging.info(f"is_conversation_start: {is_conversation_start}")
 
     if is_conversation_start:
-        instructions = 'Start your response with a greeting like "Здравствуйте!"'
-        logging.info(f"Setting instructions: {instructions}")
+        instructions = 'Start your response with a greeting like "Здравствуйте!" Provide an overview of the functionality you have.'
         conversation.mark_as_returning()
 
     messages = conversation.get_recent_history(10)
-    logging.info(f"Recent conversation history: {messages}")
+    messages = [
+        msg
+        for msg in reversed(messages)
+        if isinstance(msg, dict) and "content" in msg and msg["content"] is not None
+    ]
 
     try:
         loop = asyncio.get_event_loop()
         last_message = next(
-            (
-                msg["content"]
-                for msg in reversed(messages)
-                if isinstance(msg, dict) and "content" in msg
-            ),
+            (msg["content"] for msg in reversed(messages)),
             "",
         )
         logging.info(f"Last message for FAQ: {last_message}")
@@ -110,6 +110,7 @@ async def generate_reply_text(conversation: Conversation) -> str:
         logging.info(f"FAQ reply: {faq_reply}")
     except Exception as e:
         logging.error(f"FAQ retrieval error: {e}")
+        raise e
         faq_reply = "No FAQ information available."
 
     messages.append({"role": "developer", "content": "FAQ RAG: " + faq_reply})
@@ -119,7 +120,7 @@ async def generate_reply_text(conversation: Conversation) -> str:
 
     try:
         response = await client.responses.create(
-            model="gpt-4o-mini",
+            model="gpt-5-mini",
             tools=tools,
             instructions=instructions,
             input=messages,
@@ -129,7 +130,8 @@ async def generate_reply_text(conversation: Conversation) -> str:
         logging.error(f"OpenAI API call failed: {e}")
         return "Error generating response."
 
-    conversation.history += response.output
+    messages = conversation.get_history_copy()
+    messages += response.output
 
     has_function_call = False
     for item in response.output:
@@ -148,7 +150,7 @@ async def generate_reply_text(conversation: Conversation) -> str:
                     args["monthly_savings"],
                 )
                 logging.info(f"Function call result: {strategies}")
-                conversation.history.append(
+                messages.append(
                     {
                         "type": "function_call_output",
                         "call_id": item.call_id,
@@ -158,7 +160,7 @@ async def generate_reply_text(conversation: Conversation) -> str:
                 logging.info("Re-generating response after function call output")
             elif item.name == "get_personal_finance_analytics":
                 analytics = get_user_financial_summary(bank_user_id)
-                conversation.history.append(
+                messages.append(
                     {
                         "type": "function_call_output",
                         "call_id": item.call_id,
@@ -171,7 +173,7 @@ async def generate_reply_text(conversation: Conversation) -> str:
             model="gpt-5-mini",
             tools=tools,
             instructions="Present the result of the function call in the context of the conversation. Derive insights from the data and make calls to action for the user.",
-            input=conversation.history,
+            input=messages,
         )
         logging.info(f"Final response after function call: {response}")
 
@@ -195,7 +197,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         reply, quick_options = await generate_reply(
-            update.effective_user.id, "Здравствуйте! Я клиент банка."
+            update.effective_user.id, "Список функционала"
         )
         await update.message.reply_text(
             reply,
@@ -227,10 +229,68 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await typing_task
 
 
+async def voice_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    stop_event = asyncio.Event()
+    typing_task = asyncio.create_task(
+        send_typing_action_periodically(update.effective_chat.id, stop_event)
+    )
+
+    try:
+        voice = update.message.voice
+        if not voice:
+            return
+
+        # Download voice message
+        file = await context.bot.get_file(voice.file_id)
+        ogg_path = f"./media/voice_{voice.file_unique_id}.ogg"
+        await file.download_to_drive(ogg_path)
+
+        if not os.path.exists(ogg_path):
+            print("[ERROR] Downloaded file does not exist!")
+            return
+
+        # Convert OGG to WAV (Whisper can handle OGG too, but WAV is safer)
+        wav_path = f"./media/voice_{voice.file_unique_id}.wav"
+        AudioSegment.from_ogg(ogg_path).export(wav_path, format="wav")
+
+        if not os.path.exists(wav_path):
+            print("[ERROR] WAV file was not created!")
+            return
+
+        wav_size = os.path.getsize(wav_path)
+        print(f"[INFO] WAV file size: {wav_size} bytes")
+        if wav_size == 0:
+            print("[ERROR] WAV file is empty!")
+            return
+
+        # Transcribe with Whisper
+        audio_file = open(wav_path, "rb")
+
+        transcript = openai.audio.transcriptions.create(
+            model="whisper-1", file=audio_file
+        )
+        logging.info("Voice transcript:", transcript.text)
+
+        reply, quick_options = await generate_reply(
+            update.effective_user.id, transcript.text
+        )
+        await update.message.reply_text(
+            reply,
+            reply_markup=create_quick_replies(quick_options),
+            parse_mode="MarkdownV2",
+        )
+    except Exception as e:
+        raise e
+    finally:
+        stop_event.set()
+        await typing_task
+
+
 def main():
     logging.basicConfig(level=logging.INFO)
     app.add_handler(CommandHandler("start", start_handler))
-    app.add_handler(MessageHandler(filters.ALL, message_handler))
+    app.add_handler(MessageHandler(filters.ALL, voice_handler))
+    app.add_handler(MessageHandler(filters.TEXT, message_handler))
     print("🚀 Bot is starting...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
