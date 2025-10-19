@@ -3,9 +3,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import io
+import asyncio
+from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy import text
 from db import engine
 
 pd.options.display.float_format = '{:,.2f}'.format
+
 
 def convert_to_kzt(amount, currency, rates_from_eur):
     eur_to_kzt = rates_from_eur["kzt"]
@@ -20,6 +24,7 @@ def convert_to_kzt(amount, currency, rates_from_eur):
         return amount_in_eur * eur_to_kzt
     raise ValueError(f"Неизвестная валюта: {currency}")
 
+
 def plot_to_bytesio(fig) -> io.BytesIO:
     """Saves Matplotlib figure to BytesIO (PNG)"""
     buffer = io.BytesIO()
@@ -28,18 +33,28 @@ def plot_to_bytesio(fig) -> io.BytesIO:
     plt.close(fig)
     return buffer
 
-def get_user_financial_summary(user_id: int):
+
+async def get_user_financial_summary(user_id: int):
+    # Fetch latest currency rates (can stay sync, or use aiohttp if you want)
     url = "https://latest.currency-api.pages.dev/v1/currencies/eur.json"
     response = requests.get(url)
     rates_from_eur = response.json()["eur"]
 
-    df = pd.read_sql("SELECT * FROM transactions", engine)
+    # --- ASYNC SQL FETCH ---
+    async with engine.connect() as conn:
+        result = await conn.execute(text("SELECT * FROM transactions"))
+        df = pd.DataFrame(result.fetchall(), columns=result.keys())
 
+    if df.empty:
+        return None
+
+    # Convert currencies
     df["amount_kzt"] = df.apply(
         lambda row: convert_to_kzt(row["amount"], row["currency"], rates_from_eur),
         axis=1
     )
 
+    # Aggregate data
     income_df = (
         df.groupby("user_id")["amount_kzt"]
         .sum()
@@ -72,6 +87,7 @@ def get_user_financial_summary(user_id: int):
         .sort_values(ascending=False)
     )
 
+    # --- Recommendations ---
     top_categories = []
     recommendations = []
 
@@ -88,11 +104,11 @@ def get_user_financial_summary(user_id: int):
     else:
         recommendations.append("Отличная финансовая стабильность — нет трат.")
 
-    # ---------- GRAPHS ----------
+    # --- Graphs ---
     sns.set(style="whitegrid")
     graphs = {}
 
-    # Pie chart; expense by category
+    # Pie chart
     if not user_expenses_by_category.empty:
         fig, ax = plt.subplots(figsize=(6, 6))
         ax.pie(
@@ -104,7 +120,7 @@ def get_user_financial_summary(user_id: int):
         ax.set_title("Структура расходов по категориям")
         graphs["pie_chart"] = plot_to_bytesio(fig)
 
-    # Line chart; day spendings
+    # Line chart by date
     if "date" in df.columns:
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
         daily_expenses = (
@@ -122,8 +138,8 @@ def get_user_financial_summary(user_id: int):
             ax.set_ylabel("Сумма (₸)")
             plt.xticks(rotation=45)
             graphs["line_chart"] = plot_to_bytesio(fig)
-    # -----------------------------
 
+    # --- Final Result ---
     result = {
         "user_id": int(user_id),
         "income": round(user_income, 2),
@@ -135,3 +151,4 @@ def get_user_financial_summary(user_id: int):
     }
 
     return result
+

@@ -9,7 +9,7 @@ import logging
 from dotenv import load_dotenv
 import os
 import telegram
-from telegram import Update
+from telegram import Update,InputMediaPhoto
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -33,7 +33,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN is missing in .env")
 
-bank_user_id = random.randint(1, 10)
+bank_user_id = 1
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 conversations: dict[int, Conversation] = {}
@@ -68,16 +68,18 @@ async def generate_reply(user_id: int, text: str) -> tuple[str, list[str]]:
 
     conversation.add_user_message(text)
 
-    reply_text = await generate_reply_text(conversation)
+    reply_text, images = await generate_reply_text(conversation)
     conversation.add_assistant_message(reply_text)
 
     quick_options = await generate_quick_replies(conversation)
 
     logging.debug(json.dumps(conversation.get_serializable_history()))
-    return reply_text, quick_options
+    return reply_text, images, quick_options
 
 
 async def generate_reply_text(conversation: Conversation) -> str:
+    images = None
+
     logging.info("=== generate_reply_text START ===")
 
     instructions = None
@@ -170,7 +172,11 @@ async def generate_reply_text(conversation: Conversation) -> str:
                 )
                 logging.info("Re-generating response after function call output")
             elif item.name == "get_personal_finance_analytics":
-                analytics = get_user_financial_summary(bank_user_id)
+                analytics = await get_user_financial_summary(bank_user_id)
+                print(analytics)
+                print(analytics["graphs"])
+                images = [analytics["graphs"]["pie_chart"], analytics["graphs"]["line_chart"]]
+                analytics["graphs"] = None
                 messages.append(
                     {
                         "type": "function_call_output",
@@ -214,7 +220,7 @@ async def generate_reply_text(conversation: Conversation) -> str:
     logging.info(f"Final markdown_text: {markdown_text}")
     logging.info("=== generate_reply_text END ===")
 
-    return markdown_text
+    return markdown_text, images
 
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -224,7 +230,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     try:
-        reply, quick_options = await generate_reply(
+        reply, _, quick_options = await generate_reply(
             update.effective_user.id, "Список функционала"
         )
         await update.message.reply_text(
@@ -244,14 +250,21 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     try:
-        reply, quick_options = await generate_reply(
+        reply, images, quick_options = await generate_reply(
             update.effective_user.id, update.message.text
         )
-        await update.message.reply_text(
-            reply,
-            reply_markup=create_quick_replies(quick_options),
-            parse_mode="MarkdownV2",
-        )
+        if images:
+            await update.message.reply_media_group(
+                [InputMediaPhoto(media=x) for x in images],
+                caption=reply,
+                parse_mode="MarkdownV2",
+            )
+        else:
+            await update.message.reply_text(
+                reply,
+                reply_markup=create_quick_replies(quick_options),
+                parse_mode="MarkdownV2",
+            )
     finally:
         stop_event.set()
         await typing_task
