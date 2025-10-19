@@ -1,3 +1,4 @@
+import time
 import telegramify_markdown
 import openai
 import random
@@ -17,6 +18,7 @@ from telegram.ext import (
     filters,
 )
 import asyncio
+import openai_client
 from conversation import Conversation
 from llm_tools import tools
 from quick_replies import create_quick_replies, generate_quick_replies
@@ -82,13 +84,13 @@ async def generate_reply_text(conversation: Conversation) -> str:
     logging.info(f"is_conversation_start: {is_conversation_start}")
 
     if is_conversation_start:
-        instructions = 'Start your response with a greeting like "Здравствуйте!" Provide an overview of the functionality you have.'
+        instructions = 'Start your response with "Здравствуйте!"'
         conversation.mark_as_returning()
 
     messages = conversation.get_recent_history(10)
     messages = [
         msg
-        for msg in reversed(messages)
+        for msg in messages
         if isinstance(msg, dict) and "content" in msg and msg["content"] is not None
     ]
 
@@ -98,14 +100,12 @@ async def generate_reply_text(conversation: Conversation) -> str:
             (msg["content"] for msg in reversed(messages)),
             "",
         )
-        logging.info(f"Last message for FAQ: {last_message}")
 
         faq_query = last_message
-        if is_conversation_start:
-            faq_query = "Перечисли услуги банка и основные вопросы"
-            logging.info(f"Overriding FAQ query for conversation start: {faq_query}")
-
+        start = time.time()
         faq_reply = await loop.run_in_executor(None, ask_faq, faq_query)
+        end = time.time()
+        print(f"It took {start - end} seconds to ask_faq")
         faq_reply = str(faq_reply)
         logging.info(f"FAQ reply: {faq_reply}")
     except Exception as e:
@@ -116,15 +116,19 @@ async def generate_reply_text(conversation: Conversation) -> str:
     messages.append({"role": "developer", "content": "FAQ RAG: " + faq_reply})
     logging.info(f"Messages after FAQ append: {messages}")
 
-    client = openai.AsyncOpenAI(api_key=openai.api_key)
-
     try:
-        response = await client.responses.create(
-            model="gpt-5-mini",
+        print()
+        print("FIRST CALL", messages)
+        print()
+        start = time.time()
+        response = await openai_client.client.responses.create(
+            model="gpt-4o-mini",
             tools=tools,
             instructions=instructions,
             input=messages,
         )
+        end = time.time()
+        print(f"It took {start - end} seconds to do first openai call") # regular output if no function
         logging.info(f"Raw OpenAI response: {response}")
     except Exception as e:
         logging.error(f"OpenAI API call failed: {e}")
@@ -142,6 +146,8 @@ async def generate_reply_text(conversation: Conversation) -> str:
             if item.name == "generate_saving_strategies":
                 loop = asyncio.get_event_loop()
                 args = json.loads(item.arguments)
+
+                start = time.time()
                 strategies = await loop.run_in_executor(
                     None,
                     generate_saving_strategies,
@@ -149,6 +155,8 @@ async def generate_reply_text(conversation: Conversation) -> str:
                     args["current_balance"],
                     args["monthly_savings"],
                 )
+                end = time.time()
+                print(f"It took {start - end} seconds to do generate_saving_strategy")
                 logging.info(f"Function call result: {strategies}")
                 messages.append(
                     {
@@ -169,12 +177,15 @@ async def generate_reply_text(conversation: Conversation) -> str:
                 )
 
     if has_function_call:
+        start = time.time()
         response = await client.responses.create(
             model="gpt-5-mini",
             tools=tools,
             instructions="Present the result of the function call in the context of the conversation. Derive insights from the data and make calls to action for the user.",
             input=messages,
         )
+        end = time.time()
+        print(f"It took {start - end} seconds to ask chatgpt to present the function call result")
         logging.info(f"Final response after function call: {response}")
 
     output_text = response.output_text if hasattr(response, "output_text") else ""
@@ -289,7 +300,7 @@ async def voice_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     logging.basicConfig(level=logging.INFO)
     app.add_handler(CommandHandler("start", start_handler))
-    app.add_handler(MessageHandler(filters.ALL, voice_handler))
+    app.add_handler(MessageHandler(filters.VOICE, voice_handler))
     app.add_handler(MessageHandler(filters.TEXT, message_handler))
     print("🚀 Bot is starting...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
