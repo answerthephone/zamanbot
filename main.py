@@ -1,3 +1,4 @@
+import os
 from sqlalchemy import text
 import asyncio
 import time
@@ -44,6 +45,8 @@ bank_user_id = None
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 conversations: dict[int, Conversation] = {}
+
+os.makedirs("media", exist_ok=True)
 
 
 def get_or_create_conversation(user_id: int) -> Conversation:
@@ -361,6 +364,9 @@ async def voice_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def main():
     global bank_user_id
+    global nn
+    global X
+    global features
 
     async with engine.connect() as conn:
         result = await conn.execute(text("SELECT id FROM users OFFSET 51 LIMIT 1"))

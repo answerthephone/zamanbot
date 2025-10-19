@@ -80,7 +80,7 @@ async def find_relevant_goal_comparisons(target_user_id, nn, X, features):
     examples = []
     for similar_user_id in similar_users:
         users_goals = goals[goals["user_id"] == similar_user_id]
-        finished_goals = users_goals[users_goals["finished"]]
+        finished_goals = users_goals[users_goals["target_amount"] <= users_goals["current_amount"]]
         if len(finished_goals) == 0:
             continue
 
