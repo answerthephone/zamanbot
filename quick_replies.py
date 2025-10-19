@@ -6,7 +6,7 @@ from faq_rag.faq_rag import ask_faq, async_check_faq_has
 from conversation import Conversation
 import openai
 import openai_client
-from llm_tools import tools
+from llm_tools import tools, get_tools_summary
 from telegram import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 
 
@@ -41,10 +41,13 @@ async def generate_quick_replies(conversation: Conversation) -> list[str]:
 
         content_messages = [msg["content"] for msg in messages if "content" in msg and msg["content"] is not None]
 
-        last_message = content_messages[-1] if len(content_messages) >= 1 else ""
-        second_last_message = content_messages[-2] if len(content_messages) >= 2 else ""
+        if len(content_messages) > 1:
+            last_message = content_messages[-1] if len(content_messages) >= 1 else ""
+            second_last_message = content_messages[-2] if len(content_messages) >= 2 else ""
 
-        faq_input = last_message + "\n" + second_last_message
+            faq_input = last_message + "\n" + second_last_message
+        else:
+            faq_input = "Функционал"
 
         start = time.time()
         faq_reply = await loop.run_in_executor(None, ask_faq, faq_input)
@@ -57,6 +60,7 @@ async def generate_quick_replies(conversation: Conversation) -> list[str]:
         faq_reply = "No FAQ information available."
 
     messages.append({"role": "developer", "content": "FAQ RAG: " + faq_reply})
+    messages.append({"role": "developer", "content": "Tools: " + json.dumps(get_tools_summary())})
     messages = [x for x in messages if "content" in x and x["content"] is not None]
 
     # Create async OpenAI client
@@ -85,7 +89,7 @@ async def generate_quick_replies(conversation: Conversation) -> list[str]:
                 },
             }
         ],
-        instructions="Your next reply is not visible to the user. Suggest 0-8 things for the user to reply with. Only add relevant contextual buttons. These will be used as button labels. 1-5 words per option. Only letters. No punctuation or numeration. End your response with a JSON array of strings.",
+        instructions="Your next reply is not visible to the user. Suggest 1-8 things for the user to reply with. Add relevant contextual buttons. 1-5 words per option. Only letters. No punctuation or numeration. End your response with a JSON array of strings.",
         input=messages,
     )
     end = time.time()

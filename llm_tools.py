@@ -36,5 +36,30 @@ tools = [
             "required": [],
             "additionalProperties": False,
         },
-    }
-]
+    },
+    {
+        "type": "function",
+        "strict": True,
+        "name": "get_investment_recommendations",
+        "description": "Get investment recommendations.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "risk_level": {
+                    "type": "integer",
+                    "description": "from 1 to 3 where 1 is low, 2 is medium and 3 is high."
+                }
+            },
+            "required": ["risk_level"],
+            "additionalProperties": False,
+        },
+    }]
+
+def get_tools_summary():
+    summary = []
+    for tool in tools:
+        summary.append({
+            "name": tool.get("name"),
+            "description": tool.get("description")
+        })
+    return summary

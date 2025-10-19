@@ -24,6 +24,7 @@ from llm_tools import tools
 from quick_replies import create_quick_replies, generate_quick_replies
 from analytics import get_user_financial_summary
 from pydub import AudioSegment
+from investment_advice import generate_investment_recommendations, get_risk_level_str
 
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -128,7 +129,9 @@ async def generate_reply_text(conversation: Conversation) -> str:
             input=messages,
         )
         end = time.time()
-        print(f"It took {start - end} seconds to do first openai call") # regular output if no function
+        print(
+            f"It took {start - end} seconds to do first openai call"
+        )  # regular output if no function
         logging.info(f"Raw OpenAI response: {response}")
     except Exception as e:
         logging.error(f"OpenAI API call failed: {e}")
@@ -175,17 +178,31 @@ async def generate_reply_text(conversation: Conversation) -> str:
                         "output": json.dumps({"analytics": analytics}),
                     }
                 )
+            elif item.name == "get_investment_recommendations":
+                args = json.loads(item.arguments)
+                recommendations = await generate_investment_recommendations(
+                    get_risk_level_str(args["risk_level"])
+                )
+                messages.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": item.call_id,
+                        "output": json.dumps({"recommendations": recommendations}),
+                    }
+                )
 
     if has_function_call:
         start = time.time()
-        response = await client.responses.create(
-            model="gpt-5-mini",
+        response = await openai_client.client.responses.create(
+            model="gpt-4o-mini",
             tools=tools,
             instructions="Present the result of the function call in the context of the conversation. Derive insights from the data and make calls to action for the user.",
             input=messages,
         )
         end = time.time()
-        print(f"It took {start - end} seconds to ask chatgpt to present the function call result")
+        print(
+            f"It took {start - end} seconds to ask chatgpt to present the function call result"
+        )
         logging.info(f"Final response after function call: {response}")
 
     output_text = response.output_text if hasattr(response, "output_text") else ""
