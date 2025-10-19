@@ -7,7 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # System deps (minimal). libpq5 = runtime for psycopg; build-essential only if wheels not available.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates libpq5 build-essential \
+    curl ca-certificates libpq5 build-essential ffmpeg \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -46,3 +46,4 @@ RUN uv sync --frozen
 # We don't copy .env; Compose will inject it via `env_file: .env`
 # Default command (overridden by docker-compose for migrate/seed)
 CMD ["python", "main.py"]
+
