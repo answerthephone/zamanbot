@@ -80,12 +80,14 @@ async def find_relevant_goal_comparisons(target_user_id, nn, X, features):
     examples = []
     for similar_user_id in similar_users:
         users_goals = goals[goals["user_id"] == similar_user_id]
-        finished_goals = users_goals[users_goals["target_amount"] <= users_goals["current_amount"]]
+        finished_goals = users_goals[users_goals["target_amount"] >= users_goals["current_amount"]]
         if len(finished_goals) == 0:
             continue
 
         for x in finished_goals[["name", "target_amount", "currency", "deadline"]].values.tolist():
             x[3] = pd.to_datetime(x[3]).date()
+            x[1] = float(x[1])
+            x[3] = str(x[3])
             examples.append(tuple(x))
 
     # Return top 3 most recent finished goals

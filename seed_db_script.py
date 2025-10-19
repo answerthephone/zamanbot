@@ -173,11 +173,14 @@ def gen_accounts(n, user_ids):
 def gen_goals(n, user_ids, account_ids):
     rows = []
     for _ in range(n):
+
         created = fake.date_between(start_date="-1y", end_date="today")
         deadline = (datetime.combine(created, datetime.min.time()) + timedelta(days=random.randint(90, 720))).date()
         currency = random.choice(CURRENCIES)
         target = goal_target(currency)
         current = d2(random.uniform(0, float(target) * 0.97))
+        if random.random() < 0.5:
+            current = target
         rows.append({
             "user_id": random.choice(user_ids),
             "account_id": random.choice(account_ids),
