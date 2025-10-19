@@ -171,8 +171,9 @@ async def generate_reply_text(conversation: Conversation) -> str:
                     }
                 )
                 logging.info("Re-generating response after function call output")
-            elif item.name == "get_personal_finance_analytics":
-                analytics = await get_user_financial_summary(bank_user_id)
+            elif item.name == "get_user_financial_summary":
+                args = json.loads(item.arguments)
+                analytics = await get_user_financial_summary(bank_user_id, args["last_n_days"])
                 print(analytics)
                 print(analytics["graphs"])
                 images = [analytics["graphs"]["pie_chart"], analytics["graphs"]["line_chart"]]

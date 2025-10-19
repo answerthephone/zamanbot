@@ -27,11 +27,15 @@ tools = [
     {
         "type": "function",
         "strict": True,
-        "name": "get_personal_finance_analytics",
-        "description": "Get personal finance analytics.",
+        "name": "get_user_financial_summary",
+        "description": "Get summary of a user's income and expenses over the last_n_days.",
         "parameters": {
             "type": "object",
             "properties": {
+                "last_n_days": {
+                    "type": "integer",
+                    "description": "Number of days to look back for the summary."
+                }
             },
             "required": [],
             "additionalProperties": False,
@@ -53,7 +57,8 @@ tools = [
             "required": ["risk_level"],
             "additionalProperties": False,
         },
-    }]
+    }
+]
 
 def get_tools_summary():
     summary = []

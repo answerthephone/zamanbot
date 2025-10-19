@@ -33,28 +33,39 @@ def plot_to_bytesio(fig) -> io.BytesIO:
     plt.close(fig)
     return buffer
 
-
-async def get_user_financial_summary(user_id: int):
-    # Fetch latest currency rates (can stay sync, or use aiohttp if you want)
+def get_user_financial_summary(user_id: int, last_n_days: int = 30) -> dict:
+    # --- Load currency rates ---
     url = "https://latest.currency-api.pages.dev/v1/currencies/eur.json"
     response = requests.get(url)
     rates_from_eur = response.json()["eur"]
 
-    # --- ASYNC SQL FETCH ---
-    async with engine.connect() as conn:
-        result = await conn.execute(text("SELECT * FROM transactions"))
-        df = pd.DataFrame(result.fetchall(), columns=result.keys())
+    # --- Load transactions ---
+    df = pd.read_sql("SELECT * FROM transactions", engine)
+
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+
+    # --- Filter by last_n_days ---
+    cutoff_date = datetime.now() - timedelta(days=last_n_days)
+    df = df[df["date"] >= cutoff_date]
 
     if df.empty:
-        return None
+        return {
+            "user_id": user_id,
+            "income": 0.0,
+            "expense": 0.0,
+            "net_balance": 0.0,
+            "top_expense_categories": [],
+            "recommendations": ["Нет данных за последние дни."],
+            "graphs": {}
+        }
 
-    # Convert currencies
+    # --- Currency normalization ---
     df["amount_kzt"] = df.apply(
         lambda row: convert_to_kzt(row["amount"], row["currency"], rates_from_eur),
         axis=1
     )
 
-    # Aggregate data
+    # --- Aggregations ---
     income_df = (
         df.groupby("user_id")["amount_kzt"]
         .sum()
@@ -80,6 +91,7 @@ async def get_user_financial_summary(user_id: int):
     user_expense = user_row["expense"]
     user_balance = user_row["net_balance"]
 
+    # --- Expenses by category ---
     user_expenses_df = df[df["from_account_id"] == user_id]
     user_expenses_by_category = (
         user_expenses_df.groupby("category")["amount_kzt"]
@@ -87,7 +99,6 @@ async def get_user_financial_summary(user_id: int):
         .sort_values(ascending=False)
     )
 
-    # --- Recommendations ---
     top_categories = []
     recommendations = []
 
@@ -98,13 +109,16 @@ async def get_user_financial_summary(user_id: int):
         avg_expense = user_expenses_by_category.mean()
         for category, amount in user_expenses_by_category.head(3).items():
             if amount > avg_expense:
-                recommendations.append(f"Сократите расходы в категории {category} (потрачено {amount:,.0f} ₸)")
+                recommendations.append(
+                    f"Сократите расходы в категории {category} (потрачено {amount:,.0f} ₸)"
+                )
+
         if user_balance < 0:
             recommendations.append("У вас отрицательный баланс, стоит пересмотреть траты или увеличить доход.")
     else:
-        recommendations.append("Отличная финансовая стабильность — нет трат.")
+        recommendations.append("Отличная финансовая стабильность — нет трат за этот период.")
 
-    # --- Graphs ---
+    # --- GRAPHS ---
     sns.set(style="whitegrid")
     graphs = {}
 
@@ -120,26 +134,23 @@ async def get_user_financial_summary(user_id: int):
         ax.set_title("Структура расходов по категориям")
         graphs["pie_chart"] = plot_to_bytesio(fig)
 
-    # Line chart by date
-    if "date" in df.columns:
-        df["date"] = pd.to_datetime(df["date"], errors="coerce")
-        daily_expenses = (
-            df[df["from_account_id"] == user_id]
-            .groupby(df["date"].dt.date)["amount_kzt"]
-            .sum()
-            .reset_index()
-        )
+    # Line chart
+    daily_expenses = (
+        user_expenses_df.groupby(user_expenses_df["date"].dt.date)["amount_kzt"]
+        .sum()
+        .reset_index()
+    )
 
-        if not daily_expenses.empty:
-            fig, ax = plt.subplots(figsize=(7, 4))
-            sns.lineplot(data=daily_expenses, x="date", y="amount_kzt", marker="o", ax=ax)
-            ax.set_title("Траты по дням (₸)")
-            ax.set_xlabel("Дата")
-            ax.set_ylabel("Сумма (₸)")
-            plt.xticks(rotation=45)
-            graphs["line_chart"] = plot_to_bytesio(fig)
+    if not daily_expenses.empty:
+        fig, ax = plt.subplots(figsize=(7, 4))
+        sns.lineplot(data=daily_expenses, x="date", y="amount_kzt", marker="o", ax=ax)
+        ax.set_title(f"Траты по дням (последние {last_n_days} дней)")
+        ax.set_xlabel("Дата")
+        ax.set_ylabel("Сумма (₸)")
+        plt.xticks(rotation=45)
+        graphs["line_chart"] = plot_to_bytesio(fig)
 
-    # --- Final Result ---
+    # --- Final summary ---
     result = {
         "user_id": int(user_id),
         "income": round(user_income, 2),
@@ -151,4 +162,3 @@ async def get_user_financial_summary(user_id: int):
     }
 
     return result
-
