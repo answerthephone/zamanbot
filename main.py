@@ -1,5 +1,6 @@
 import telegramify_markdown
 import openai
+import random
 import json
 from faq_rag.faq_rag import ask_faq
 from saving_strategies import generate_saving_strategies
@@ -19,6 +20,8 @@ import asyncio
 from conversation import Conversation
 from llm_tools import tools
 from quick_replies import create_quick_replies, generate_quick_replies
+from analytics import get_user_financial_summary
+from pydub import AudioSegment
 
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -27,15 +30,34 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN is missing in .env")
 
+bank_user_id = random.randint(1, 10)
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 conversations: dict[int, Conversation] = {}
+
 
 def get_or_create_conversation(user_id: int) -> Conversation:
     """Get existing conversation or create a new one."""
     if user_id not in conversations:
         conversations[user_id] = Conversation(user_id)
     return conversations[user_id]
+
+
+async def send_typing_action_periodically(chat_id: int, stop_event: asyncio.Event):
+    """Send typing action every 3 seconds until stop_event is set."""
+    while not stop_event.is_set():
+        try:
+            await app.bot.send_chat_action(
+                chat_id=chat_id, action=telegram.constants.ChatAction.TYPING
+            )
+        except Exception as e:
+            logging.error(f"Error sending typing action: {e}")
+
+        # Wait 3 seconds or until stop_event is set
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=3.0)
+        except asyncio.TimeoutError:
+            continue
 
 
 async def generate_reply(user_id: int, text: str) -> tuple[str, list[str]]:
@@ -53,93 +75,222 @@ async def generate_reply(user_id: int, text: str) -> tuple[str, list[str]]:
 
 
 async def generate_reply_text(conversation: Conversation) -> str:
-    instructions = None
+    logging.info("=== generate_reply_text START ===")
 
-    if conversation.should_greet():
-        instructions = 'Start your response with a greeting like "Здравствуйте!"'
+    instructions = None
+    is_conversation_start = conversation.should_greet()
+    logging.info(f"is_conversation_start: {is_conversation_start}")
+
+    if is_conversation_start:
+        instructions = 'Start your response with a greeting like "Здравствуйте!" Provide an overview of the functionality you have.'
         conversation.mark_as_returning()
 
     messages = conversation.get_recent_history(10)
+    messages = [
+        msg
+        for msg in reversed(messages)
+        if isinstance(msg, dict) and "content" in msg and msg["content"] is not None
+    ]
 
     try:
-        # Run FAQ retrieval in executor to avoid blocking
         loop = asyncio.get_event_loop()
-        faq_reply = await loop.run_in_executor(None, ask_faq, messages[-1]["content"])
+        last_message = next(
+            (msg["content"] for msg in reversed(messages)),
+            "",
+        )
+        logging.info(f"Last message for FAQ: {last_message}")
+
+        faq_query = last_message
+        if is_conversation_start:
+            faq_query = "Перечисли услуги банка и основные вопросы"
+            logging.info(f"Overriding FAQ query for conversation start: {faq_query}")
+
+        faq_reply = await loop.run_in_executor(None, ask_faq, faq_query)
         faq_reply = str(faq_reply)
+        logging.info(f"FAQ reply: {faq_reply}")
     except Exception as e:
         logging.error(f"FAQ retrieval error: {e}")
+        raise e
         faq_reply = "No FAQ information available."
 
     messages.append({"role": "developer", "content": "FAQ RAG: " + faq_reply})
+    logging.info(f"Messages after FAQ append: {messages}")
 
-    # Create async OpenAI client
     client = openai.AsyncOpenAI(api_key=openai.api_key)
 
-    response = await client.responses.create(
-        model="gpt-5-mini",
-        tools=tools,
-        instructions=instructions,
-        input=messages,
-    )
+    try:
+        response = await client.responses.create(
+            model="gpt-5-mini",
+            tools=tools,
+            instructions=instructions,
+            input=messages,
+        )
+        logging.info(f"Raw OpenAI response: {response}")
+    except Exception as e:
+        logging.error(f"OpenAI API call failed: {e}")
+        return "Error generating response."
+
+    messages = conversation.get_history_copy()
+    messages += response.output
 
     has_function_call = False
     for item in response.output:
+        logging.info(f"Processing response item: {item}")
         if item.type == "function_call":
             has_function_call = True
+            logging.info(f"Detected function call: {item.name}")
             if item.name == "generate_saving_strategies":
-                # Run function in executor to avoid blocking
                 loop = asyncio.get_event_loop()
-                result = await loop.run_in_executor(
-                    None, generate_saving_strategies, json.loads(item.arguments)
+                args = json.loads(item.arguments)
+                strategies = await loop.run_in_executor(
+                    None,
+                    generate_saving_strategies,
+                    args["financial_goal"],
+                    args["current_balance"],
+                    args["monthly_savings"],
                 )
-                conversation.add_function_call_output(
-                    call_id=item.call_id, output=json.dumps(result)
+                logging.info(f"Function call result: {strategies}")
+                messages.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": item.call_id,
+                        "output": json.dumps({"strategies": strategies}),
+                    }
+                )
+                logging.info("Re-generating response after function call output")
+            elif item.name == "get_personal_finance_analytics":
+                analytics = get_user_financial_summary(bank_user_id)
+                messages.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": item.call_id,
+                        "output": json.dumps({"analytics": analytics}),
+                    }
                 )
 
     if has_function_call:
         response = await client.responses.create(
-            model="gpt-4o-mini",
+            model="gpt-5-mini",
             tools=tools,
-            instructions="Present the result of the function call in the context of the conversation.",
-            input=conversation.get_recent_history(5),
+            instructions="Present the result of the function call in the context of the conversation. Derive insights from the data and make calls to action for the user.",
+            input=messages,
         )
+        logging.info(f"Final response after function call: {response}")
 
-    return telegramify_markdown.markdownify(
-        response.output_text, max_line_length=None, normalize_whitespace=False
+    output_text = response.output_text if hasattr(response, "output_text") else ""
+    logging.info(f"Final output_text before markdownify: {output_text}")
+
+    markdown_text = telegramify_markdown.markdownify(
+        output_text, max_line_length=None, normalize_whitespace=False
     )
+    logging.info(f"Final markdown_text: {markdown_text}")
+    logging.info("=== generate_reply_text END ===")
+
+    return markdown_text
 
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await app.bot.send_chat_action(
-        chat_id=update.effective_chat.id, action=telegram.constants.ChatAction.TYPING
+    stop_event = asyncio.Event()
+    typing_task = asyncio.create_task(
+        send_typing_action_periodically(update.effective_chat.id, stop_event)
     )
-    reply, quick_options = await generate_reply(
-        update.effective_user.id, "Здравствуйте! Я клиент банка."
-    )
-    await update.message.reply_text(
-        reply,
-        reply_markup=create_quick_replies(quick_options),
-        parse_mode="MarkdownV2",
-    )
+
+    try:
+        reply, quick_options = await generate_reply(
+            update.effective_user.id, "Список функционала"
+        )
+        await update.message.reply_text(
+            reply,
+            reply_markup=create_quick_replies(quick_options),
+            parse_mode="MarkdownV2",
+        )
+    finally:
+        stop_event.set()
+        await typing_task
 
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await app.bot.send_chat_action(
-        chat_id=update.effective_chat.id, action=telegram.constants.ChatAction.TYPING
+    stop_event = asyncio.Event()
+    typing_task = asyncio.create_task(
+        send_typing_action_periodically(update.effective_chat.id, stop_event)
     )
-    reply, quick_options = await generate_reply(
-        update.effective_user.id, update.message.text
+
+    try:
+        reply, quick_options = await generate_reply(
+            update.effective_user.id, update.message.text
+        )
+        await update.message.reply_text(
+            reply,
+            reply_markup=create_quick_replies(quick_options),
+            parse_mode="MarkdownV2",
+        )
+    finally:
+        stop_event.set()
+        await typing_task
+
+
+async def voice_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    stop_event = asyncio.Event()
+    typing_task = asyncio.create_task(
+        send_typing_action_periodically(update.effective_chat.id, stop_event)
     )
-    await update.message.reply_text(
-        reply,
-        reply_markup=create_quick_replies(quick_options),
-        parse_mode="MarkdownV2",
-    )
+
+    try:
+        voice = update.message.voice
+        if not voice:
+            return
+
+        # Download voice message
+        file = await context.bot.get_file(voice.file_id)
+        ogg_path = f"./media/voice_{voice.file_unique_id}.ogg"
+        await file.download_to_drive(ogg_path)
+
+        if not os.path.exists(ogg_path):
+            print("[ERROR] Downloaded file does not exist!")
+            return
+
+        # Convert OGG to WAV (Whisper can handle OGG too, but WAV is safer)
+        wav_path = f"./media/voice_{voice.file_unique_id}.wav"
+        AudioSegment.from_ogg(ogg_path).export(wav_path, format="wav")
+
+        if not os.path.exists(wav_path):
+            print("[ERROR] WAV file was not created!")
+            return
+
+        wav_size = os.path.getsize(wav_path)
+        print(f"[INFO] WAV file size: {wav_size} bytes")
+        if wav_size == 0:
+            print("[ERROR] WAV file is empty!")
+            return
+
+        # Transcribe with Whisper
+        audio_file = open(wav_path, "rb")
+
+        transcript = openai.audio.transcriptions.create(
+            model="whisper-1", file=audio_file
+        )
+        logging.info("Voice transcript:", transcript.text)
+
+        reply, quick_options = await generate_reply(
+            update.effective_user.id, transcript.text
+        )
+        await update.message.reply_text(
+            reply,
+            reply_markup=create_quick_replies(quick_options),
+            parse_mode="MarkdownV2",
+        )
+    except Exception as e:
+        raise e
+    finally:
+        stop_event.set()
+        await typing_task
+
 
 def main():
     logging.basicConfig(level=logging.INFO)
     app.add_handler(CommandHandler("start", start_handler))
-    app.add_handler(MessageHandler(filters.ALL, message_handler))
+    app.add_handler(MessageHandler(filters.ALL, voice_handler))
+    app.add_handler(MessageHandler(filters.TEXT, message_handler))
     print("🚀 Bot is starting...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 

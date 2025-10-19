@@ -1,7 +1,9 @@
 import copy
 
+
 class Conversation:
-    SYSTEM_PROMPT = "Ты цифровой ассистент банка ZamanBank. Твоя цель помочь клиенту банка. Отвечай на вопросы клиента как справочник: напрямую и полностью, без введения или заключения. Пытайся использовать functions если это уместно. Если не хватает данных для вызовы функции, спроси их у пользователя. При запросе данных у пользователя спрашивай по одному полю за раз и не предлагай контекстных действий."
+    SYSTEM_PROMPT = "Ты цифровой ассистент банка ZamanBank. Твоя цель помочь клиенту банка. Поздаровайся с пользователем, рассказав о функционале бота, затем отвечай на вопросы клиента как справочник: напрямую и полностью, без введения или заключения. Пытайся использовать functions если это уместно. Если не хватает данных для вызовы функции, спроси их у пользователя. При запросе данных у пользователя спрашивай по одному полю за раз и не предлагай контекстных действий."
+    "При аналитике данных, давай персонализированные советы по оптимизации трат и увеличению сбережений."
 
     def __init__(self, user_id: int):
         self.user_id = user_id
@@ -24,16 +26,6 @@ class Conversation:
     def add_developer_message(self, content: str):
         """Add a developer message to the conversation history."""
         self.history.append({"role": "developer", "content": content})
-
-    def add_function_call_output(self, call_id: str, output: str):
-        """Add a function call output to the conversation history."""
-        self.history.append(
-            {
-                "type": "function_call_output",
-                "call_id": call_id,
-                "output": output,
-            }
-        )
 
     def get_history_copy(self) -> list[dict]:
         """Return a deep copy of the conversation history."""
