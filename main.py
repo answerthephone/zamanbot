@@ -97,7 +97,7 @@ async def generate_reply_text(conversation: Conversation) -> str:
     logging.info(f"is_conversation_start: {is_conversation_start}")
 
     if is_conversation_start:
-        instructions = 'Start your response with "Здравствуйте!"'
+        instructions = 'Start your response with "Здравствуйте!".'
         conversation.mark_as_returning()
 
     messages = conversation.get_recent_history(10)

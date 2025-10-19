@@ -28,7 +28,7 @@ tools = [
         "type": "function",
         "strict": True,
         "name": "get_personal_finance_analytics",
-        "description": "Get personal finance analytics.",
+        "description": "Get personal finance / spending analytics.",
         "parameters": {
             "type": "object",
             "properties": {},
