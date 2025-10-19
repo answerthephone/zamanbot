@@ -25,6 +25,7 @@ dependencies = [
     "yfinance>=0.2.66",
     "matplotlib>=3.10.7",
     "seaborn>=0.13.2",
+    "scikit-learn>=1.7.2",
 ]
 [tool.mypy]
 ignore_missing_imports = true

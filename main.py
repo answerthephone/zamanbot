@@ -1,7 +1,10 @@
+from sqlalchemy import text
+import asyncio
 import time
 import telegramify_markdown
 import openai
 import random
+from db import engine
 import json
 from faq_rag.faq_rag import ask_faq
 from saving_strategies import generate_saving_strategies
@@ -17,7 +20,6 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
-import asyncio
 import openai_client
 from conversation import Conversation
 from llm_tools import tools
@@ -25,6 +27,8 @@ from quick_replies import create_quick_replies, generate_quick_replies
 from analytics import get_user_financial_summary
 from pydub import AudioSegment
 from investment_advice import generate_investment_recommendations, get_risk_level_str
+from user_grouping import prepare_knn_and_aggregated_data, find_relevant_goal_comparisons
+
 
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -33,7 +37,10 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN is missing in .env")
 
-bank_user_id = 1
+nn = None
+X = None
+features = None
+bank_user_id = None
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 conversations: dict[int, Conversation] = {}
@@ -197,6 +204,19 @@ async def generate_reply_text(conversation: Conversation) -> str:
                         "output": json.dumps({"recommendations": recommendations}),
                     }
                 )
+            elif item.name == "compare_goals":
+                args = json.loads(item.arguments)
+                goals = await find_relevant_goal_comparisons(
+                    bank_user_id, nn, X, features
+                )
+                messages.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": item.call_id,
+                        "output": json.dumps({"top_3_relevant_goals": goals}),
+                    }
+                )
+
 
     if has_function_call:
         start = time.time()
@@ -328,14 +348,30 @@ async def voice_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await typing_task
 
 
-def main():
+async def main():
+    global bank_user_id
+
+    async with engine.connect() as conn:
+        result = await conn.execute(text("SELECT id FROM users OFFSET 51 LIMIT 1"))
+        bank_user_id = result.scalar()
+    nn, X, features = await prepare_knn_and_aggregated_data()
     logging.basicConfig(level=logging.INFO)
     app.add_handler(CommandHandler("start", start_handler))
     app.add_handler(MessageHandler(filters.VOICE, voice_handler))
     app.add_handler(MessageHandler(filters.TEXT, message_handler))
     print("🚀 Bot is starting...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+
+    # Keep running until interrupted
+    await asyncio.Event().wait()
+
+    # Cleanup
+    await app.updater.stop()
+    await app.stop()
+    await app.shutdown()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

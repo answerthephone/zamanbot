@@ -27,16 +27,11 @@ tools = [
     {
         "type": "function",
         "strict": True,
-        "name": "get_user_financial_summary",
-        "description": "Get summary of a user's income and expenses over the last_n_days.",
+        "name": "get_personal_finance_analytics",
+        "description": "Get personal finance analytics.",
         "parameters": {
             "type": "object",
-            "properties": {
-                "last_n_days": {
-                    "type": "integer",
-                    "description": "Number of days to look back for the summary."
-                }
-            },
+            "properties": {},
             "required": [],
             "additionalProperties": False,
         },
@@ -51,20 +46,32 @@ tools = [
             "properties": {
                 "risk_level": {
                     "type": "integer",
-                    "description": "from 1 to 3 where 1 is low, 2 is medium and 3 is high."
+                    "description": "from 1 to 3 where 1 is low, 2 is medium and 3 is high.",
                 }
             },
             "required": ["risk_level"],
             "additionalProperties": False,
         },
+    },
+    {
+        "type": "function",
+        "strict": True,
+        "name": "compare_goals",
+        "description": "Get anonymous insights about how other people are achieving their goals to motivate the user.",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": False,
+        },
     }
 ]
+
 
 def get_tools_summary():
     summary = []
     for tool in tools:
-        summary.append({
-            "name": tool.get("name"),
-            "description": tool.get("description")
-        })
+        summary.append(
+            {"name": tool.get("name"), "description": tool.get("description")}
+        )
     return summary
