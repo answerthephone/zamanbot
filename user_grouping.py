@@ -9,14 +9,13 @@ engine = create_engine(settings.DATABASE_URL)
 
 N_NEIGHBORS = 10  # Seems enough, but feel free to adjust
 
-transactions = pd.read_sql("SELECT * FROM transactions", engine)
-goals = pd.read_sql("SELECT * FROM financial_goals", engine)
-
 def prepare_knn_and_aggregated_data():
     """Prepare KNN model and aggregated user transaction data for
     later use in finding relevant goal comparisons. Should be called
     every once in a while to refresh the data. (say, every 10 minutes)
     Returns the KNN model, scaled feature matrix X, and the features DataFrame."""
+    transactions = pd.read_sql("SELECT * FROM transactions", engine)
+    goals = pd.read_sql("SELECT * FROM financial_goals", engine)
 
     # Aggregate transaction data by user
     features = transactions.groupby("user_id").agg(
